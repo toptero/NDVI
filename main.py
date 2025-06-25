@@ -1,0 +1,47 @@
+from flask import Flask, request, jsonify
+from flask_cors import CORS
+import ee
+import datetime
+import os
+
+# Inicializa Earth Engine con claves locales
+service_account = 'ndvi-401@impactful-shard-464005-q7.iam.gserviceaccount.com'
+credentials = ee.ServiceAccountCredentials(service_account, 'clave.json')
+ee.Initialize(credentials)
+
+app = Flask(__name__)
+CORS(app)
+
+@app.route("/ndvi", methods=["POST"])
+def ndvi_map():
+    data = request.get_json()
+    geometry = data.get("geometry")
+
+    if not geometry:
+        return jsonify({"error": "No geometry received"}), 400
+
+    coords = [[lon, lat] for lat, lon in geometry]
+    polygon = ee.Geometry.Polygon([coords])
+
+    today = datetime.date.today()
+    start = today.replace(day=1)
+    end = today
+
+    collection = ee.ImageCollection('COPERNICUS/S2_SR_HARMONIZED') \
+        .filterBounds(polygon) \
+        .filterDate(str(start), str(end)) \
+        .filter(ee.Filter.lt('CLOUDY_PIXEL_PERCENTAGE', 20))
+
+    median = collection.median()
+    ndvi = median.normalizedDifference(['B8', 'B4']).rename('NDVI')
+
+    vis = {'min': 0, 'max': 1, 'palette': ['brown', 'yellow', 'green']}
+    mapid = ndvi.clip(polygon).visualize(**vis).getMapId()
+
+    return jsonify({
+        "tile_url": f"https://earthengine.googleapis.com/map/{mapid['mapid']}/{{z}}/{{x}}/{{y}}?token={mapid['token']}"
+    })
+
+if __name__ == "__main__":
+    port = int(os.environ.get('PORT', 5000))
+    app.run(host='0.0.0.0', port=port)
