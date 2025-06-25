@@ -1,70 +1,10 @@
-# import json
-# from flask import Flask, request, jsonify
-# import ee
-# import datetime
-
-# # Autenticación Earth Engine
-# ee.Initialize()
-
-# app = Flask(__name__)
-
-# @app.route("/ndvi", methods=["POST"])
-# def ndvi_map():
-#     try:
-#         data = request.get_json()
-#         geometry = data.get("geometry")
-
-#         if not geometry or not isinstance(geometry, list) or len(geometry) < 3:
-#             return jsonify({"error": "No geometry received or geometry is invalid"}), 400
-
-#         # Reordenar coordenadas de [lat, lon] a [lon, lat]
-#         coords = [[lon, lat] for lat, lon in geometry]
-#         polygon = ee.Geometry.Polygon([coords])
-
-#         # Fechas: últimos 3 meses desde hoy
-#         today = ee.Date(datetime.datetime.utcnow().isoformat())
-#         start = today.advance(-3, 'month')
-#         end = today
-
-#         # Colección Sentinel-2 SR
-#         collection = (
-#             ee.ImageCollection('COPERNICUS/S2_SR_HARMONIZED')
-#             .filterBounds(polygon)
-#             .filterDate(start, end)
-#             .filter(ee.Filter.lt('CLOUDY_PIXEL_PERCENTAGE', 40))
-#         )
-
-#         # Verificar si hay imágenes disponibles
-#         if collection.size().getInfo() == 0:
-#             return jsonify({"error": "No images found for this area and date range"}), 400
-
-#         # Calcular NDVI
-#         median = collection.median()
-#         ndvi = median.normalizedDifference(['B8', 'B4']).rename('NDVI')
-
-#         # Visualización
-#         vis_params = {'min': 0, 'max': 1, 'palette': ['brown', 'yellow', 'green']}
-#         ndvi_visual = ndvi.clip(polygon).visualize(**vis_params)
-
-#         mapid = ee.data.getMapId({'image': ndvi_visual})
-
-#         return jsonify({
-#             "tile_url": f"https://earthengine.googleapis.com/map/{mapid['mapid']}/{{z}}/{{x}}/{{y}}?token={mapid['token']}"
-#         })
-
-#     except Exception as e:
-#         import traceback
-#         print(traceback.format_exc())
-#         return jsonify({"error": str(e)}), 500
-
-# if __name__ == "__main__":
-#     app.run(host="0.0.0.0", port=8080)
 
 from flask import Flask, request, jsonify
 from flask_cors import CORS
 import ee
 import os
 import json
+import datetime  # Import necesario para fecha
 
 # Guarda la clave JSON localmente desde variable de entorno
 with open('clave.json', 'w') as f:
@@ -91,8 +31,8 @@ def ndvi_map():
         coords = [[lon, lat] for lat, lon in geometry]
         polygon = ee.Geometry.Polygon([coords])
 
-        # Fechas: últimos 3 meses
-        today = ee.Date(ee.Date.now())
+        # Fechas: últimos 3 meses usando datetime para obtener fecha actual
+        today = ee.Date(datetime.datetime.utcnow().strftime('%Y-%m-%d'))
         start = today.advance(-3, 'month')
         end = today
 
@@ -127,6 +67,74 @@ def ndvi_map():
 if __name__ == "__main__":
     port = int(os.environ.get('PORT', 5000))
     app.run(host='0.0.0.0', port=port)
+
+# from flask import Flask, request, jsonify
+# from flask_cors import CORS
+# import ee
+# import os
+# import json
+
+# # Guarda la clave JSON localmente desde variable de entorno
+# with open('clave.json', 'w') as f:
+#     json.dump(json.loads(os.environ['EE_CREDENTIALS']), f)
+
+# # Inicializa Earth Engine con cuenta de servicio
+# service_account = 'ndvi-401@impactful-shard-464005-q7.iam.gserviceaccount.com'
+# credentials = ee.ServiceAccountCredentials(service_account, 'clave.json')
+# ee.Initialize(credentials)
+
+# app = Flask(__name__)
+# CORS(app)
+
+# @app.route("/ndvi", methods=["POST"])
+# def ndvi_map():
+#     try:
+#         data = request.get_json()
+#         geometry = data.get("geometry")
+
+#         if not geometry or not isinstance(geometry, list) or len(geometry) < 3:
+#             return jsonify({"error": "No geometry received or geometry is invalid"}), 400
+
+#         # Convierte [lat, lon] a [lon, lat]
+#         coords = [[lon, lat] for lat, lon in geometry]
+#         polygon = ee.Geometry.Polygon([coords])
+
+#         # Fechas: últimos 3 meses
+#         today = ee.Date(ee.Date.now())
+#         start = today.advance(-3, 'month')
+#         end = today
+
+#         # Colección Sentinel-2
+#         collection = (ee.ImageCollection('COPERNICUS/S2_SR_HARMONIZED')
+#                       .filterBounds(polygon)
+#                       .filterDate(start, end)
+#                       .filter(ee.Filter.lt('CLOUDY_PIXEL_PERCENTAGE', 40)))
+
+#         # Verifica si hay imágenes
+#         count = collection.size().getInfo()
+#         if count == 0:
+#             return jsonify({"error": "No images found for this area and date range"}), 400
+
+#         # Procesa NDVI
+#         median = collection.median()
+#         ndvi = median.normalizedDifference(['B8', 'B4']).rename('NDVI')
+
+#         vis = {'min': 0, 'max': 1, 'palette': ['brown', 'yellow', 'green']}
+#         ndvi_visual = ndvi.clip(polygon).visualize(**vis)
+#         mapid = ee.data.getMapId({'image': ndvi_visual})
+
+#         return jsonify({
+#             "tile_url": f"https://earthengine.googleapis.com/map/{mapid['mapid']}/{{z}}/{{x}}/{{y}}?token={mapid['token']}"
+#         })
+
+#     except Exception as e:
+#         import traceback
+#         print(traceback.format_exc())
+#         return jsonify({"error": str(e)}), 500
+
+# if __name__ == "__main__":
+#     port = int(os.environ.get('PORT', 5000))
+#     app.run(host='0.0.0.0', port=port)
 
 # from flask import Flask, request, jsonify
 # from flask_cors import CORS
