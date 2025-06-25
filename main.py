@@ -1,17 +1,15 @@
-# job id
 from flask import Flask, request, jsonify
 from flask_cors import CORS
 import ee
 import os
 import json
-import uuid
-import threading
-import time
+import datetime
 
-# Inicializar EE con cuenta de servicio
+# Guarda la clave JSON desde la variable de entorno
 with open('clave.json', 'w') as f:
     json.dump(json.loads(os.environ['EE_CREDENTIALS']), f)
 
+# Inicializa EE con cuenta de servicio
 service_account = 'ndvi-401@impactful-shard-464005-q7.iam.gserviceaccount.com'
 credentials = ee.ServiceAccountCredentials(service_account, 'clave.json')
 ee.Initialize(credentials)
@@ -19,79 +17,53 @@ ee.Initialize(credentials)
 app = Flask(__name__)
 CORS(app)
 
-# Diccionario global para guardar resultados NDVI { job_id: tile_url }
-results = {}
-# Diccionario para estados { job_id: "processing" | "done" | "error" }
-statuses = {}
-
-def calculate_ndvi_job(job_id, geometry):
+@app.route("/ndvi", methods=["POST"])
+def ndvi_map():
     try:
-        coords = geometry
+        data = request.get_json()
+        geometry = data.get("geometry")
+
+        if not geometry or not isinstance(geometry, list) or len(geometry) < 3:
+            return jsonify({"error": "No geometry received or geometry is invalid"}), 400
+
+        # Convertir [lat, lon] → [lon, lat]
+        coords = [[lon, lat] for lat, lon in geometry]
         polygon = ee.Geometry.Polygon([coords])
 
-        today = ee.Date(ee.Date.now())
-        start = today.advance(-3, 'month')
-        end = today
+        # Fechas: últimos 3 meses
+        today = datetime.datetime.utcnow().strftime('%Y-%m-%d')
+        start = ee.Date(today).advance(-3, 'month')
+        end = ee.Date(today)
 
+        # Colección Sentinel-2
         collection = (ee.ImageCollection('COPERNICUS/S2_SR_HARMONIZED')
                       .filterBounds(polygon)
                       .filterDate(start, end)
                       .filter(ee.Filter.lt('CLOUDY_PIXEL_PERCENTAGE', 40)))
 
-        count = collection.size().getInfo()
-        if count == 0:
-            statuses[job_id] = "error"
-            results[job_id] = "No images found for this area and date range"
-            return
+        # Verifica si hay imágenes
+        if collection.size().getInfo() == 0:
+            return jsonify({"error": "No images found for this area and date range"}), 400
 
+        # Calcular NDVI
         median = collection.median()
         ndvi = median.normalizedDifference(['B8', 'B4']).rename('NDVI')
+        ndvi_visual = ndvi.clip(polygon).visualize(**{
+            'min': 0,
+            'max': 1,
+            'palette': ['brown', 'yellow', 'green']
+        })
 
-        vis = {'min': 0, 'max': 1, 'palette': ['brown', 'yellow', 'green']}
-        ndvi_visual = ndvi.clip(polygon).visualize(**vis)
+        # Generar tile_url
         mapid = ee.data.getMapId({'image': ndvi_visual})
-
         tile_url = f"https://earthengine.googleapis.com/map/{mapid['mapid']}/{{z}}/{{x}}/{{y}}?token={mapid['token']}"
 
-        results[job_id] = tile_url
-        statuses[job_id] = "done"
+        return jsonify({ "tile_url": tile_url })
 
     except Exception as e:
-        statuses[job_id] = "error"
-        results[job_id] = str(e)
-
-@app.route('/ndvi', methods=['POST'])
-def start_ndvi():
-    try:
-        data = request.get_json()
-        geometry = data.get('geometry')
-        if not geometry or not isinstance(geometry, list) or len(geometry) < 3:
-            return jsonify({"error": "Geometry missing or invalid"}), 400
-
-        job_id = str(uuid.uuid4())
-        statuses[job_id] = "processing"
-
-        # Lanzar hilo para cálculo NDVI asíncrono
-        thread = threading.Thread(target=calculate_ndvi_job, args=(job_id, geometry))
-        thread.start()
-
-        return jsonify({"job_id": job_id})
-
-    except Exception as e:
+        import traceback
+        print(traceback.format_exc())
         return jsonify({"error": str(e)}), 500
-
-@app.route('/ndvi/result/<job_id>', methods=['GET'])
-def get_ndvi_result(job_id):
-    status = statuses.get(job_id)
-    if not status:
-        return jsonify({"error": "Job ID no encontrado"}), 404
-
-    if status == "processing":
-        return jsonify({"status": "processing"}), 202
-    elif status == "done":
-        return jsonify({"status": "done", "tile_url": results[job_id]})
-    else:  # error
-        return jsonify({"status": "error", "message": results[job_id]}), 500
 
 if __name__ == "__main__":
     port = int(os.environ.get('PORT', 5000))
