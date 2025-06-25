@@ -3,7 +3,6 @@ from flask_cors import CORS
 import ee
 import os
 import json
-import datetime
 
 # Guarda la clave JSON localmente desde variable de entorno
 with open('clave.json', 'w') as f:
@@ -21,34 +20,32 @@ CORS(app)
 def ndvi_map():
     try:
         data = request.get_json()
-        print("Datos recibidos:", data)  # Para debug
+        geometry = data.get("geometry")
 
-        if not data or "geometry" not in data:
-            return jsonify({"error": "No geometry received"}), 400
-
-        geometry = data["geometry"]
-        if not geometry or not isinstance(geometry, list) or len(geometry) == 0:
-            return jsonify({"error": "Geometry empty or invalid"}), 400
+        if not geometry or not isinstance(geometry, list) or len(geometry) < 3:
+            return jsonify({"error": "No geometry received or geometry is invalid"}), 400
 
         # Convierte [lat, lon] a [lon, lat]
         coords = [[lon, lat] for lat, lon in geometry]
         polygon = ee.Geometry.Polygon([coords])
 
-        # Fechas con datetime estándar
-        today = datetime.date.today()
-        start = (today.replace(day=1))  # Primer día de mes
+        # Fechas: últimos 3 meses
+        today = ee.Date(ee.Date.now())
+        start = today.advance(-3, 'month')
         end = today
 
-        # Filtra la colección Sentinel-2 SR Harmonized
+        # Colección Sentinel-2
         collection = (ee.ImageCollection('COPERNICUS/S2_SR_HARMONIZED')
                       .filterBounds(polygon)
-                      .filterDate(str(start), str(end))
-                      .filter(ee.Filter.lt('CLOUDY_PIXEL_PERCENTAGE', 20)))
+                      .filterDate(start, end)
+                      .filter(ee.Filter.lt('CLOUDY_PIXEL_PERCENTAGE', 40)))
 
+        # Verifica si hay imágenes
         count = collection.size().getInfo()
         if count == 0:
             return jsonify({"error": "No images found for this area and date range"}), 400
 
+        # Procesa NDVI
         median = collection.median()
         ndvi = median.normalizedDifference(['B8', 'B4']).rename('NDVI')
 
@@ -65,7 +62,6 @@ def ndvi_map():
         print(traceback.format_exc())
         return jsonify({"error": str(e)}), 500
 
-
 if __name__ == "__main__":
     port = int(os.environ.get('PORT', 5000))
     app.run(host='0.0.0.0', port=port)
@@ -73,9 +69,9 @@ if __name__ == "__main__":
 # from flask import Flask, request, jsonify
 # from flask_cors import CORS
 # import ee
-# import datetime
 # import os
 # import json
+# import datetime
 
 # # Guarda la clave JSON localmente desde variable de entorno
 # with open('clave.json', 'w') as f:
@@ -93,27 +89,28 @@ if __name__ == "__main__":
 # def ndvi_map():
 #     try:
 #         data = request.get_json()
-#         geometry = data.get("geometry")
+#         print("Datos recibidos:", data)  # Para debug
 
-#         if not geometry:
+#         if not data or "geometry" not in data:
 #             return jsonify({"error": "No geometry received"}), 400
+
+#         geometry = data["geometry"]
+#         if not geometry or not isinstance(geometry, list) or len(geometry) == 0:
+#             return jsonify({"error": "Geometry empty or invalid"}), 400
 
 #         # Convierte [lat, lon] a [lon, lat]
 #         coords = [[lon, lat] for lat, lon in geometry]
 #         polygon = ee.Geometry.Polygon([coords])
 
-#         # Fechas con datetime y conversión a ee.Date
+#         # Fechas con datetime estándar
 #         today = datetime.date.today()
-#         start_date = today.replace(day=1)  # Primer día del mes actual
-#         end_date = today
-
-#         ee_start = ee.Date(str(start_date))
-#         ee_end = ee.Date(str(end_date))
+#         start = (today.replace(day=1))  # Primer día de mes
+#         end = today
 
 #         # Filtra la colección Sentinel-2 SR Harmonized
 #         collection = (ee.ImageCollection('COPERNICUS/S2_SR_HARMONIZED')
 #                       .filterBounds(polygon)
-#                       .filterDate(ee_start, ee_end)
+#                       .filterDate(str(start), str(end))
 #                       .filter(ee.Filter.lt('CLOUDY_PIXEL_PERCENTAGE', 20)))
 
 #         count = collection.size().getInfo()
@@ -135,6 +132,7 @@ if __name__ == "__main__":
 #         import traceback
 #         print(traceback.format_exc())
 #         return jsonify({"error": str(e)}), 500
+
 
 # if __name__ == "__main__":
 #     port = int(os.environ.get('PORT', 5000))
