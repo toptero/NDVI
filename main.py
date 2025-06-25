@@ -3,7 +3,10 @@ from flask_cors import CORS
 import ee
 import datetime
 import os
+import json
 
+with open('clave.json', 'w') as f:
+    json.dump(json.loads(os.environ['EE_CREDENTIALS']), f)
 # Inicializa Earth Engine con claves locales
 service_account = 'ndvi-401@impactful-shard-464005-q7.iam.gserviceaccount.com'
 credentials = ee.ServiceAccountCredentials(service_account, 'clave.json')
