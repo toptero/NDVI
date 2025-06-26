@@ -1,3 +1,4 @@
 flask
 flask-cors
-earthengine-api
+requests
+gunicorn
