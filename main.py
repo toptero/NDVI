@@ -56,6 +56,7 @@ def ndvi_map():
 
         # Generar tile_url
         mapid = ee.data.getMapId({'image': ndvi_visual})
+        print("MapID:", mapid)
         tile_url = f"https://earthengine.googleapis.com/map/{mapid['mapid']}/{{z}}/{{x}}/{{y}}?token={mapid['token']}"
 
         return jsonify({ "tile_url": tile_url })
